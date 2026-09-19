@@ -1,0 +1,77 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Orbit",
+  "version": "0.4.0",
+  "identifier": "com.abdulla.orbit",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "overlay",
+        "url": "overlay.html",
+        "title": "Orbit",
+        "width": 360,
+        "height": 360,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "shadow": false,
+        "focus": false,
+        "visible": false,
+        "center": false
+      },
+      {
+        "label": "settings",
+        "url": "settings.html",
+        "title": "Orbit Settings",
+        "width": 1040,
+        "height": 730,
+        "minWidth": 820,
+        "minHeight": 640,
+        "resizable": true,
+        "visible": false,
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Abdullaebri/orbit/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5MEY2MUQwOUZCMzQ4OTkKUldTWlNMT2YwR0VQS1dxSnhxbWN3RDZmazhxS3FqZ3hkVm1TT2VWVDJqNjB3dEh6T1J6d3BNK0IK"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["nsis", "msi"],
+    "publisher": "Abdulla",
+    "shortDescription": "A radial shortcut menu for Windows",
+    "longDescription": "Orbit puts nine customisable shortcuts in a ring at your cursor, opened with a click of the middle mouse button.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

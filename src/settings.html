@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Orbit Settings</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <header class="top">
+      <h1>Orbit</h1>
+      <p id="where" class="where"></p>
+    </header>
+
+    <main class="main">
+      <section class="canvas">
+        <p class="hint">
+          Click a slot to edit it, or drag slots to swap them. Drop an app or a
+          file onto a slot to replace it &mdash; drop it on empty space inside
+          the ring to add a new slot.
+        </p>
+
+        <div class="ring-wrap">
+          <div class="preview" id="preview">
+            <div class="preview-inner"></div>
+            <div class="pslots" id="pslots"></div>
+            <div class="phub"><span id="phubLabel"></span></div>
+          </div>
+        </div>
+
+        <div class="canvas-foot">
+          <button id="addSlot" class="btn" type="button">Add slot</button>
+          <button id="removeSlot" class="btn danger" type="button">
+            Remove slot
+          </button>
+        </div>
+      </section>
+
+      <aside class="side">
+        <div class="panel">
+          <h2 id="slotTitle">Slot</h2>
+          <div id="inspector" class="inspector"></div>
+        </div>
+
+        <div class="panel grow">
+          <h2>Add to a slot</h2>
+          <input
+            id="search"
+            type="text"
+            placeholder="Search your installed apps and quick actions…"
+          />
+          <p class="hint tight" id="searchHint">
+            Drag one onto a slot, or click to drop it into the selected slot.
+          </p>
+          <div id="presets" class="presets"></div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="bottom">
+      <span class="lbl">Trigger</span>
+      <span id="triggerNow" class="pill">Middle mouse button</span>
+      <button id="capture" class="btn small" type="button">Change</button>
+
+      <label class="check">
+        <input id="autostart" type="checkbox" />
+        <span>Start with Windows</span>
+      </label>
+
+      <span id="status" class="status"></span>
+      <button id="reset" class="btn" type="button">Reset</button>
+      <button id="save" class="btn primary" type="button">Save</button>
+    </footer>
+
+    <div id="ghost" class="ghost" hidden></div>
+
+    <script src="icons.js"></script>
+    <script src="settings.js"></script>
+  </body>
+</html>
