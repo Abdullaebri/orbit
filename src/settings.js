@@ -74,7 +74,11 @@ function say(text, tone = "") {
   el("status").className = `status ${tone}`;
 }
 
-function touched() {
+/// Every edit funnels through here, so this is also where an undo step is
+/// recorded. `key` collapses a run of related edits (typing in one field) into
+/// a single step - see mark().
+function touched(key = null) {
+  mark(key);
   say("Unsaved changes");
 }
 
@@ -168,22 +172,39 @@ function renderRing() {
   el("addSlot").disabled = n >= MAX_SLOTS;
 }
 
+/// Slot and ring geometry, measured once per drag. Reading getBoundingClientRect
+/// on every pointermove forces a layout pass per slot, which is what made
+/// dragging feel like it was lagging behind the cursor.
+let geom = null;
+
+function measureGeometry() {
+  const ring = el("preview").getBoundingClientRect();
+  geom = {
+    ring: { x: ring.left + ring.width / 2, y: ring.top + ring.height / 2, r: ring.width / 2 },
+    slots: Array.from(pslots.children).map((node) => {
+      const r = node.getBoundingClientRect();
+      return {
+        index: Number(node.dataset.index),
+        x: r.left + r.width / 2,
+        y: r.top + r.height / 2,
+        r: r.width / 2 + 6,
+      };
+    }),
+  };
+}
+
 function slotAt(clientX, clientY) {
-  for (const node of pslots.children) {
-    const r = node.getBoundingClientRect();
-    const dx = clientX - (r.left + r.width / 2);
-    const dy = clientY - (r.top + r.height / 2);
-    if (Math.hypot(dx, dy) <= r.width / 2 + 6) return Number(node.dataset.index);
+  const g = geom || (measureGeometry(), geom);
+  for (const s of g.slots) {
+    if (Math.hypot(clientX - s.x, clientY - s.y) <= s.r) return s.index;
   }
   return null;
 }
 
 /// True anywhere inside the ring itself, including the gaps between slots.
 function insideRing(clientX, clientY) {
-  const r = el("preview").getBoundingClientRect();
-  const dx = clientX - (r.left + r.width / 2);
-  const dy = clientY - (r.top + r.height / 2);
-  return Math.hypot(dx, dy) <= r.width / 2;
+  const g = geom || (measureGeometry(), geom);
+  return Math.hypot(clientX - g.ring.x, clientY - g.ring.y) <= g.ring.r;
 }
 
 /// Appends an empty slot and selects it. Returns its index, or null when the
@@ -198,29 +219,51 @@ function addSlot() {
   return selected;
 }
 
+let markedTarget = null;
+
 function clearTargets() {
-  for (const node of pslots.children) node.classList.remove("target");
+  if (markedTarget !== null && pslots.children[markedTarget]) {
+    pslots.children[markedTarget].classList.remove("target");
+  }
+  markedTarget = null;
 }
 
+/// Only touches the DOM when the hovered slot actually changes.
 function markTarget(clientX, clientY) {
-  clearTargets();
   const i = slotAt(clientX, clientY);
-  if (i !== null) pslots.children[i].classList.add("target");
+  if (i === markedTarget) return i;
+  clearTargets();
+  if (i !== null && pslots.children[i]) {
+    pslots.children[i].classList.add("target");
+    markedTarget = i;
+  }
   return i;
 }
 
 function showGhost(label, icon) {
   ghost.innerHTML = `${iconSvg(icon)}<span>${label}</span>`;
+  ghost.classList.remove("vanishing");
   ghost.hidden = false;
 }
 
 function moveGhost(x, y) {
-  ghost.style.left = `${x}px`;
-  ghost.style.top = `${y}px`;
+  ghost.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`;
 }
 
 function hideGhost() {
   ghost.hidden = true;
+  ghost.classList.remove("vanishing");
+  ghost.style.transform = "translate3d(-9999px, -9999px, 0)";
+}
+
+/// Dropped somewhere that isn't a slot: shrink it away instead of leaving it
+/// hanging on screen.
+function vanishGhost(x, y) {
+  if (ghost.hidden) return;
+  ghost.classList.add("vanishing");
+  ghost.style.transform =
+    `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%) scale(.55)`;
+  setTimeout(hideGhost, 170);
 }
 
 /// One pointer-drag helper for both ring slots and preset chips. Pointer
@@ -234,37 +277,78 @@ function dragFrom(e, { label, icon, onDrop, onDropEmpty, onClick }) {
   const startY = e.clientY;
   let dragging = false;
 
+  // Pointer events fire faster than the screen refreshes. Painting on every one
+  // of them is what made the ghost trail behind the cursor, so the latest
+  // position is stashed here and flushed once per frame instead.
+  let lastX = startX;
+  let lastY = startY;
+  let frame = 0;
+
+  function flush() {
+    frame = 0;
+    if (!dragging) return;
+    moveGhost(lastX, lastY);
+    markTarget(lastX, lastY);
+  }
+
   function onMove(ev) {
-    if (!dragging && Math.hypot(ev.clientX - startX, ev.clientY - startY) > 5) {
+    lastX = ev.clientX;
+    lastY = ev.clientY;
+    if (!dragging && Math.hypot(lastX - startX, lastY - startY) > 5) {
       dragging = true;
+      measureGeometry();
       showGhost(label, icon);
     }
-    if (dragging) {
-      moveGhost(ev.clientX, ev.clientY);
-      markTarget(ev.clientX, ev.clientY);
-    }
+    if (dragging && !frame) frame = requestAnimationFrame(flush);
   }
 
   function onUp(ev) {
     document.removeEventListener("pointermove", onMove);
     document.removeEventListener("pointerup", onUp);
-    hideGhost();
+    document.removeEventListener("pointercancel", onCancel);
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
     clearTargets();
+
     if (!dragging) {
+      hideGhost();
+      geom = null;
       onClick?.();
       return;
     }
+
     const target = slotAt(ev.clientX, ev.clientY);
     if (target !== null) {
+      hideGhost();
       onDrop(target);
     } else if (insideRing(ev.clientX, ev.clientY)) {
       // Dropped into the ring but not onto an existing slot: make a new one.
+      hideGhost();
       onDropEmpty?.();
+    } else {
+      // Dropped on nothing: shrink it away where it was let go rather than
+      // leaving it sitting on the page.
+      vanishGhost(ev.clientX, ev.clientY);
     }
+    geom = null;
+  }
+
+  // Alt-tabbing away, or the window losing capture, cancels the pointer without
+  // a pointerup. Without this the ghost would stay stuck on screen.
+  function onCancel() {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onCancel);
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+    clearTargets();
+    hideGhost();
+    geom = null;
   }
 
   document.addEventListener("pointermove", onMove);
   document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onCancel);
 }
 
 function beginSlotDrag(e, index) {
@@ -383,7 +467,7 @@ function renderInspector() {
   label.addEventListener("input", () => {
     slot.label = label.value;
     pslots.children[selected].title = label.value;
-    touched();
+    touched(`label:${selected}`);
   });
   host.appendChild(field("Label", label));
 
@@ -427,7 +511,7 @@ function renderInspector() {
     input.value = fieldValue(slot.action, key);
     input.addEventListener("input", () => {
       setFieldValue(slot.action, key, input.value);
-      touched();
+      touched(`field:${selected}:${key}`);
     });
     host.appendChild(field(key === "args" ? "Arguments" : key, input));
   }
@@ -578,6 +662,87 @@ el("autostart").addEventListener("change", async (e) => {
   }
 });
 
+// --- Undo / redo ---------------------------------------------------------
+//
+// Snapshot based: every edit stores a copy of the editable part of the config.
+// The slots are small and shallow, so copying them is cheaper and far less
+// error-prone than tracking individual reversible operations.
+
+const HISTORY_LIMIT = 60;
+let history = [];
+let historyIndex = -1;
+let lastMark = { key: null, at: 0 };
+
+function snapshot() {
+  return JSON.stringify({ slots: config.slots, trigger: config.trigger });
+}
+
+function applySnapshot(text) {
+  const state = JSON.parse(text);
+  config.slots = state.slots;
+  config.trigger = state.trigger;
+  selected = Math.max(0, Math.min(selected, config.slots.length - 1));
+  setArmed(false);
+  renderRing();
+  renderInspector();
+}
+
+function resetHistory() {
+  history = [snapshot()];
+  historyIndex = 0;
+  lastMark = { key: null, at: 0 };
+  updateHistoryButtons();
+}
+
+/// Records one undoable step. Passing the same `key` twice in quick succession
+/// rewrites the top of the stack instead of pushing, so typing a label is one
+/// undo step rather than one per character.
+function mark(key = null) {
+  if (!config) return;
+  const state = snapshot();
+  if (state === history[historyIndex]) return;
+
+  const now = Date.now();
+  const merge = key && lastMark.key === key && now - lastMark.at < 900;
+  lastMark = { key, at: now };
+
+  if (merge && historyIndex >= 0) {
+    history[historyIndex] = state;
+  } else {
+    history.length = historyIndex + 1;
+    history.push(state);
+    if (history.length > HISTORY_LIMIT) history.shift();
+    historyIndex = history.length - 1;
+  }
+  updateHistoryButtons();
+}
+
+function updateHistoryButtons() {
+  el("undo").disabled = historyIndex <= 0;
+  el("redo").disabled = historyIndex >= history.length - 1;
+}
+
+function undo() {
+  if (historyIndex <= 0) return;
+  historyIndex -= 1;
+  applySnapshot(history[historyIndex]);
+  lastMark = { key: null, at: 0 };
+  updateHistoryButtons();
+  say("Undone. Unsaved changes");
+}
+
+function redo() {
+  if (historyIndex >= history.length - 1) return;
+  historyIndex += 1;
+  applySnapshot(history[historyIndex]);
+  lastMark = { key: null, at: 0 };
+  updateHistoryButtons();
+  say("Redone. Unsaved changes");
+}
+
+el("undo").addEventListener("click", undo);
+el("redo").addEventListener("click", redo);
+
 // --- Save / reset --------------------------------------------------------
 
 async function persist() {
@@ -585,6 +750,10 @@ async function persist() {
     config = await core.invoke("save_config", { config });
     selected = Math.min(selected, config.slots.length - 1);
     renderRing();
+    // The backend normalises what it saves, so the current history entry is
+    // rewritten to match what is actually on disk. Earlier steps stay undoable.
+    history[historyIndex] = snapshot();
+    updateHistoryButtons();
     say("Saved.", "ok");
     return true;
   } catch (err) {
@@ -608,9 +777,17 @@ el("reset").addEventListener("click", async () => {
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !armed) core.invoke("close_settings");
-  if (e.key === "s" && e.ctrlKey) {
+  if (!e.ctrlKey || e.altKey) return;
+  const key = e.key.toLowerCase();
+  if (key === "s") {
     e.preventDefault();
     persist();
+  } else if (key === "z" && !e.shiftKey) {
+    e.preventDefault();
+    undo();
+  } else if (key === "y" || (key === "z" && e.shiftKey)) {
+    e.preventDefault();
+    redo();
   }
 });
 
@@ -618,6 +795,7 @@ function hydrate() {
   setArmed(false);
   renderRing();
   renderInspector();
+  resetHistory();
 }
 
 el("search").addEventListener("input", renderPresets);

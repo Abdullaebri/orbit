@@ -1,6 +1,6 @@
 [package]
 name = "orbit"
-version = "0.4.0"
+version = "0.5.0"
 description = "Orbit - a radial shortcut menu"
 authors = ["Abdulla"]
 edition = "2021"
